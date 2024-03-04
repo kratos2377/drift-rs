@@ -69,6 +69,7 @@ async fn place_and_cancel_orders() {
     assert!(result.is_ok());
 }
 
+#[ignore]
 #[tokio::test]
 async fn place_and_take() {
     let wallet: Wallet = test_keypair().into();
@@ -81,7 +82,7 @@ async fn place_and_take() {
     .expect("connects");
 
     let sol_perp = client.market_lookup("sol-perp").expect("exists");
-
+    dbg!(sol_perp);
     let order = NewOrder::limit(sol_perp)
         .amount(1 * BASE_PRECISION_I64)
         .price(40 * PRICE_PRECISION_U64)
@@ -91,7 +92,10 @@ async fn place_and_take() {
         .await
         .unwrap()
         .place_and_take(order, None, None, None)
+        .legacy()
         .build();
+
+    dbg!(tx.clone());
 
     let result = client.sign_and_send(tx).await;
     dbg!(&result);

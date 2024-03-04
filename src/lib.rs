@@ -462,7 +462,7 @@ impl<T: AccountProvider> DriftClient<T> {
         self.backend.get_account(&user_pubkey).await
     }
 
-    /// Get a stats account 
+    /// Get a stats account
     ///
     /// Returns the deserialized account data (`UserStats`)
     pub async fn get_user_stats(&self, authority: &Pubkey) -> SdkResult<UserStats> {
@@ -1297,6 +1297,8 @@ impl<'a> TransactionBuilder<'a> {
             }
         };
 
+        dbg!(&ix);
+
         self.ixs.push(ix);
         self
     }
@@ -1348,10 +1350,12 @@ pub fn build_accounts(
 ) -> Vec<AccountMeta> {
     // the order of accounts returned must be instruction, oracles, spot, perps see (https://github.com/drift-labs/protocol-v2/blob/master/programs/drift/src/instructions/optional_accounts.rs#L28)
     let mut seen = [0_u64; 2]; // [spot, perp]
-    let mut accounts = Vec::<RemainingAccount>::default();
 
     // add accounts to the ordered list
-    let mut include_market = |market_index: u16, market_type: MarketType, writable: bool| {
+    let mut include_market = |accounts: &mut Vec<RemainingAccount>,
+                              market_index: u16,
+                              market_type: MarketType,
+                              writable: bool| {
         let index_bit = 1_u64 << market_index as u8;
         // always safe since market type is 0 or 1
         let seen_by_type = unsafe { seen.get_unchecked_mut(market_type as usize % 2) };
@@ -1387,37 +1391,48 @@ pub fn build_accounts(
             }
         };
         if let Err(idx) = accounts.binary_search(&account) {
+            dbg!("insert market", &account, idx);
             accounts.insert(idx, account);
         }
         let oracle = RemainingAccount::Oracle { pubkey: *oracle };
         if let Err(idx) = accounts.binary_search(&oracle) {
+            dbg!("insert oracle", &oracle, idx);
             accounts.insert(idx, oracle);
         }
+        dbg!(&accounts);
     };
 
+    let mut accounts = Vec::<RemainingAccount>::default();
+
     for MarketId { index, kind } in markets_writable {
-        include_market(*index, *kind, true);
+        include_market(&mut accounts, *index, *kind, true);
     }
 
     for MarketId { index, kind } in markets_readable {
-        include_market(*index, *kind, false);
+        include_market(&mut accounts, *index, *kind, false);
     }
 
     for user in users {
         // Drift program performs margin checks which requires reading user positions
         for p in user.spot_positions.iter().filter(|p| !p.is_available()) {
-            include_market(p.market_index, MarketType::Spot, false);
+            include_market(&mut accounts, p.market_index, MarketType::Spot, false);
         }
         for p in user.perp_positions.iter().filter(|p| !p.is_available()) {
-            include_market(p.market_index, MarketType::Perp, false);
+            include_market(&mut accounts, p.market_index, MarketType::Perp, false);
         }
     }
     // always manually try to include the quote (USDC) market
     // TODO: this is not exactly the same semantics as the TS sdk
-    include_market(MarketId::QUOTE_SPOT.index, MarketType::Spot, false);
+    include_market(
+        &mut accounts,
+        MarketId::QUOTE_SPOT.index,
+        MarketType::Spot,
+        false,
+    );
 
     let mut account_metas = base_accounts.to_account_metas(None);
     account_metas.extend(accounts.into_iter().map(Into::into));
+    dbg!(&account_metas);
     account_metas
 }
 
@@ -1585,6 +1600,9 @@ mod tests {
             sub_account_ids: vec![0],
         }
     }
+
+    #[test]
+    fn build_account() {}
 
     #[tokio::test]
     async fn get_market_accounts() {
